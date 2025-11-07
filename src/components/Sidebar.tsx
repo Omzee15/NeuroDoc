@@ -1,7 +1,9 @@
-import { FileText, Brain, Mic, Globe, LayoutDashboard } from "lucide-react";
+import { FileText, Brain, Mic, Globe, LayoutDashboard, Loader2 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
+import { useDocuments } from "@/contexts/DocumentContext";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -14,14 +16,9 @@ const menuItems = [
   { title: "PDFChat", icon: FileText, path: "/pdfchat" },
 ];
 
-// Mock PDF list
-const pdfList = [
-  { id: "1", name: "Research Paper 2024.pdf", pages: 45 },
-  { id: "2", name: "Business Report.pdf", pages: 23 },
-  { id: "3", name: "User Manual.pdf", pages: 67 },
-];
-
 export const Sidebar = ({ isOpen }: SidebarProps) => {
+  const { documents } = useDocuments();
+
   if (!isOpen) return null;
 
   return (
@@ -51,29 +48,60 @@ export const Sidebar = ({ isOpen }: SidebarProps) => {
           {/* PDF List */}
           <div className="space-y-1">
             <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-              Your PDFs
+              Your Documents ({documents.length})
             </h2>
-            {pdfList.length > 0 ? (
-              pdfList.map((pdf) => (
+            {documents.length > 0 ? (
+              documents.map((doc) => (
                 <NavLink
-                  key={pdf.id}
-                  to={`/pdf/${pdf.id}`}
+                  key={doc.id}
+                  to={`/pdf/${doc.id}`}
                   className="w-full flex items-start gap-3 px-3 py-2 rounded-lg text-sm transition-colors hover:bg-accent hover:text-accent-foreground text-left"
                   activeClassName="bg-accent text-accent-foreground font-medium"
                 >
-                  <FileText className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                  <div className="relative">
+                    <FileText className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                    {(doc.status === 'uploading' || doc.status === 'processing_summary') && (
+                      <Loader2 className="h-3 w-3 absolute -top-1 -right-1 animate-spin text-blue-500" />
+                    )}
+                  </div>
                   <div className="flex-1 min-w-0">
-                    <p className="truncate font-medium">{pdf.name}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="truncate font-medium">{doc.name}</p>
+                      {doc.status === 'uploading' && (
+                        <Badge variant="secondary" className="text-xs">
+                          Uploading
+                        </Badge>
+                      )}
+                      {doc.status === 'processing_summary' && (
+                        <Badge variant="secondary" className="text-xs">
+                          Processing
+                        </Badge>
+                      )}
+                      {doc.status === 'error' && (
+                        <Badge variant="destructive" className="text-xs">
+                          Error
+                        </Badge>
+                      )}
+                    </div>
                     <p className="text-xs text-muted-foreground">
-                      {pdf.pages} pages
+                      {doc.pages} pages • {doc.size}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {doc.uploadDate}
                     </p>
                   </div>
                 </NavLink>
               ))
             ) : (
-              <p className="text-sm text-muted-foreground px-3 py-2">
-                No PDFs uploaded yet
-              </p>
+              <div className="px-3 py-4 text-center">
+                <FileText className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                <p className="text-sm text-muted-foreground mb-2">
+                  No documents uploaded yet
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Click "Upload PDF" to get started
+                </p>
+              </div>
             )}
           </div>
         </div>

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Menu, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sidebar } from "@/components/Sidebar";
+import { UploadDialog } from "@/components/UploadDialog";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -9,6 +10,7 @@ interface LayoutProps {
 
 export const Layout = ({ children }: LayoutProps) => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
 
   return (
     <div className="min-h-screen w-full bg-background">
@@ -26,7 +28,10 @@ export const Layout = ({ children }: LayoutProps) => {
         <h1 className="text-xl font-semibold">PDF Analyzer</h1>
         
         <div className="ml-auto">
-          <Button className="gap-2">
+          <Button 
+            className="gap-2"
+            onClick={() => setUploadDialogOpen(true)}
+          >
             <Upload className="h-4 w-4" />
             Upload PDF
           </Button>
@@ -45,6 +50,12 @@ export const Layout = ({ children }: LayoutProps) => {
           <div className="p-6">{children}</div>
         </main>
       </div>
+
+      {/* Upload Dialog */}
+      <UploadDialog 
+        open={uploadDialogOpen} 
+        onOpenChange={setUploadDialogOpen} 
+      />
     </div>
   );
 };

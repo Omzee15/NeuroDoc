@@ -1,45 +1,63 @@
 import { useParams } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, Download, Trash2, Eye, MessageSquare, Brain, Mic, CheckCircle } from "lucide-react";
+import { FileText, Download, Trash2, Eye, MessageSquare, Brain, Mic, CheckCircle, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-
-const pdfs = [
-  {
-    id: "1",
-    name: "Research Paper 2024.pdf",
-    size: "2.4 MB",
-    pages: 45,
-    uploadDate: "2024-01-15",
-    status: "processed",
-  },
-  {
-    id: "2",
-    name: "Business Report.pdf",
-    size: "1.8 MB",
-    pages: 23,
-    uploadDate: "2024-01-14",
-    status: "processed",
-  },
-  {
-    id: "3",
-    name: "User Manual.pdf",
-    size: "5.2 MB",
-    pages: 67,
-    uploadDate: "2024-01-13",
-    status: "processed",
-  },
-];
+import { useDocuments } from "@/contexts/DocumentContext";
+import { useToast } from "@/hooks/use-toast";
+import { geminiService } from "@/services/geminiService";
+import { useState } from "react";
 
 const PDFDetail = () => {
   const { id } = useParams();
-  const pdf = pdfs.find((p) => p.id === id);
+  const { getDocumentById, removeDocument, updateDocument } = useDocuments();
+  const { toast } = useToast();
+  const [regeneratingSummary, setRegeneratingSummary] = useState(false);
+  
+  const pdf = getDocumentById(id || '');
+
+  const handleDeletePDF = () => {
+    if (pdf) {
+      removeDocument(pdf.id);
+      toast({
+        title: 'Document Deleted',
+        description: `${pdf.name} has been removed`,
+      });
+      // Navigate back to main page
+      window.location.href = '/';
+    }
+  };
+
+  const handleRegenerateSummary = async () => {
+    if (!pdf || !pdf.content) return;
+    
+    setRegeneratingSummary(true);
+    try {
+      const newSummary = await geminiService.generatePDFSummary(pdf.name, pdf.content);
+      updateDocument(pdf.id, { summary: newSummary });
+      toast({
+        title: 'Summary Regenerated',
+        description: 'The AI summary has been updated successfully.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to regenerate summary. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setRegeneratingSummary(false);
+    }
+  };
 
   if (!pdf) {
     return (
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold">PDF Not Found</h1>
-        <p className="text-muted-foreground">The requested PDF could not be found.</p>
+        <h1 className="text-3xl font-bold">Document Not Found</h1>
+        <p className="text-muted-foreground">The requested document could not be found.</p>
+        <Button onClick={() => window.location.href = '/'}>
+          Go Back
+        </Button>
       </div>
     );
   }
@@ -50,7 +68,7 @@ const PDFDetail = () => {
         <div>
           <h1 className="text-3xl font-bold">{pdf.name}</h1>
           <p className="text-muted-foreground mt-1">
-            PDF Overview and Details
+            Document Overview and Details
           </p>
         </div>
         <Badge variant="secondary" className="flex items-center gap-1">
@@ -115,9 +133,13 @@ const PDFDetail = () => {
               <Download className="h-4 w-4" />
               Download PDF
             </Button>
-            <Button variant="outline" className="justify-start gap-2 text-destructive hover:text-destructive">
+            <Button 
+              variant="outline" 
+              className="justify-start gap-2 text-destructive hover:text-destructive"
+              onClick={handleDeletePDF}
+            >
               <Trash2 className="h-4 w-4" />
-              Delete PDF
+              Delete Document
             </Button>
           </div>
         </CardContent>
@@ -126,15 +148,59 @@ const PDFDetail = () => {
       {/* Summary Card */}
       <Card>
         <CardHeader>
-          <CardTitle>AI Summary</CardTitle>
-          <CardDescription>Automatically generated summary</CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>AI Summary</CardTitle>
+              <CardDescription>Automatically generated summary</CardDescription>
+            </div>
+            {pdf.status === 'processed' && pdf.content && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleRegenerateSummary}
+                disabled={regeneratingSummary}
+              >
+                {regeneratingSummary ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    Regenerating...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Regenerate
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            This document contains {pdf.pages} pages of content covering various topics.
-            The AI analysis has processed the document and extracted key information
-            for quick reference and analysis.
-          </p>
+          {(pdf.status === 'uploading' || pdf.status === 'processing_summary') && (
+            <div className="flex items-center gap-2">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+              <p className="text-sm text-muted-foreground">
+                {pdf.status === 'uploading' ? 'Processing document...' : 'Generating AI summary...'}
+              </p>
+            </div>
+          )}
+          {pdf.status === 'error' && (
+            <p className="text-sm text-destructive">
+              Failed to process document. Please try re-uploading.
+            </p>
+          )}
+          {pdf.status === 'processed' && pdf.summary && (
+            <div className="prose prose-sm max-w-none">
+              <p className="text-sm leading-relaxed whitespace-pre-line">
+                {pdf.summary}
+              </p>
+            </div>
+          )}
+          {pdf.status === 'processed' && !pdf.summary && (
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Summary generation is in progress. Please refresh the page in a moment.
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>
