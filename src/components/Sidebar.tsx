@@ -8,10 +8,10 @@ interface SidebarProps {
 }
 
 const menuItems = [
-  { title: "PDFChat", icon: FileText, path: "/pdfchat" },
-  { title: "Quiz / Generation", icon: Brain, path: "/quiz" },
   { title: "Podcast it", icon: Mic, path: "/podcast" },
   { title: "Sites & Content Validation", icon: Globe, path: "/validation" },
+  { title: "Quiz / Generation", icon: Brain, path: "/quiz" },
+  { title: "PDFChat", icon: FileText, path: "/pdfchat" },
 ];
 
 // Mock PDF list
