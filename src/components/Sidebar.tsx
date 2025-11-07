@@ -8,8 +8,7 @@ interface SidebarProps {
 }
 
 const menuItems = [
-  { title: "Overview", icon: LayoutDashboard, path: "/" },
-  { title: "PDF", icon: FileText, path: "/pdf" },
+  { title: "PDFChat", icon: FileText, path: "/pdfchat" },
   { title: "Quiz / Generation", icon: Brain, path: "/quiz" },
   { title: "Podcast it", icon: Mic, path: "/podcast" },
   { title: "Sites & Content Validation", icon: Globe, path: "/validation" },
@@ -56,9 +55,11 @@ export const Sidebar = ({ isOpen }: SidebarProps) => {
             </h2>
             {pdfList.length > 0 ? (
               pdfList.map((pdf) => (
-                <button
+                <NavLink
                   key={pdf.id}
+                  to={`/pdf/${pdf.id}`}
                   className="w-full flex items-start gap-3 px-3 py-2 rounded-lg text-sm transition-colors hover:bg-accent hover:text-accent-foreground text-left"
+                  activeClassName="bg-accent text-accent-foreground font-medium"
                 >
                   <FileText className="h-4 w-4 mt-0.5 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
@@ -67,7 +68,7 @@ export const Sidebar = ({ isOpen }: SidebarProps) => {
                       {pdf.pages} pages
                     </p>
                   </div>
-                </button>
+                </NavLink>
               ))
             ) : (
               <p className="text-sm text-muted-foreground px-3 py-2">
