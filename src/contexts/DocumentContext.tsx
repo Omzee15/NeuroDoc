@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { geminiService } from '../services/geminiService';
 import { PodcastScript } from '../services/podcastService';
+import { ValidationReport, pdfValidationService } from '../services/pdfValidationService';
 
 export interface Message {
   id: string;
@@ -31,6 +32,8 @@ export interface Document {
   fileUrl?: string; // Store blob URL for the file
   content?: string; // For storing document content/text
   summary?: string; // AI-generated summary
+  validationReport?: ValidationReport; // PDF validation report
+  validationStatus?: 'pending' | 'validating' | 'completed' | 'failed';
 }
 
 interface DocumentContextType {
@@ -57,6 +60,9 @@ interface DocumentContextType {
   removePodcast: (id: string) => void;
   getPodcastById: (id: string) => PodcastScript | undefined;
   getPodcastsForDocument: (pdfId: string) => PodcastScript[];
+  // Validation-related methods
+  generateValidationReport: (documentId: string) => Promise<ValidationReport>;
+  getValidationReport: (documentId: string) => ValidationReport | undefined;
 }
 
 const DocumentContext = createContext<DocumentContextType | undefined>(undefined);
@@ -461,6 +467,44 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return podcasts.filter(p => p.pdfId === pdfId);
   };
 
+  const generateValidationReport = async (documentId: string): Promise<ValidationReport> => {
+    const document = getDocumentById(documentId);
+    if (!document) {
+      throw new Error('Document not found');
+    }
+
+    // Update status to validating
+    updateDocument(documentId, { validationStatus: 'validating' });
+
+    try {
+      // Get the file from storage
+      const file = await getFileFromStore(documentId);
+      if (!file) {
+        throw new Error('File not found in storage');
+      }
+
+      // Generate validation report
+      const report = await pdfValidationService.validatePDF(file);
+      
+      // Update document with validation report
+      updateDocument(documentId, {
+        validationReport: report,
+        validationStatus: 'completed'
+      });
+
+      return report;
+    } catch (error) {
+      console.error('Failed to generate validation report:', error);
+      updateDocument(documentId, { validationStatus: 'failed' });
+      throw error;
+    }
+  };
+
+  const getValidationReport = (documentId: string): ValidationReport | undefined => {
+    const document = getDocumentById(documentId);
+    return document?.validationReport;
+  };
+
   const value: DocumentContextType = {
     documents,
     addDocument,
@@ -484,6 +528,8 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     removePodcast,
     getPodcastById,
     getPodcastsForDocument,
+    generateValidationReport,
+    getValidationReport,
   };
 
   return (
