@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Send, Bot, User, Check, Loader2, MessageSquare, Download, FileText } from "lucide-react";
 import { useDocuments, type Message } from "@/contexts/DocumentContext";
-import { geminiService, type ChatMessage, type PDFContext } from "@/services/geminiService";
+import { pdfChatGeminiService, type ChatMessage, type PDFContext } from "@/services/geminiService";
 import { pdfQAService } from "@/services/pdfQAService";
 import { ChatSidebar } from "@/components/ChatSidebar";
 
@@ -213,7 +213,7 @@ const PDFChat = () => {
       }));
 
       // Get AI response
-      const aiResponse = await geminiService.sendMessage(
+      const aiResponse = await pdfChatGeminiService.sendMessage(
         userQuery,
         chatHistory,
         pdfContexts

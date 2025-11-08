@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { geminiService } from '../services/geminiService';
+import { PodcastScript } from '../services/podcastService';
 
 export interface Message {
   id: string;
@@ -50,6 +51,12 @@ interface DocumentContextType {
   setCurrentChatSession: (sessionId: string | null) => void;
   addUserQuery: (sessionId: string, query: string) => void;
   getUserQueries: (sessionId: string) => string[];
+  // Podcast-related methods
+  podcasts: PodcastScript[];
+  addPodcast: (podcast: PodcastScript) => void;
+  removePodcast: (id: string) => void;
+  getPodcastById: (id: string) => PodcastScript | undefined;
+  getPodcastsForDocument: (pdfId: string) => PodcastScript[];
 }
 
 const DocumentContext = createContext<DocumentContextType | undefined>(undefined);
@@ -57,6 +64,7 @@ const DocumentContext = createContext<DocumentContextType | undefined>(undefined
 const STORAGE_KEY = 'neurodoc_documents';
 const MESSAGES_STORAGE_KEY = 'neurodoc_chat_messages';
 const CHAT_SESSIONS_STORAGE_KEY = 'neurodoc_chat_sessions';
+const PODCASTS_STORAGE_KEY = 'neurodoc_podcasts';
 
 // Helper function to generate mock pages count based on file size
 const estimatePages = (sizeInBytes: number): number => {
@@ -110,6 +118,52 @@ const loadChatSessionsFromStorage = (): ChatSession[] => {
   }
 };
 
+// Helper function to load podcasts from localStorage
+const loadPodcastsFromStorage = (): PodcastScript[] => {
+  try {
+    const stored = localStorage.getItem(PODCASTS_STORAGE_KEY);
+    if (!stored) return [];
+    
+    const parsedData = JSON.parse(stored);
+    
+    // Ensure the data is an array
+    if (!Array.isArray(parsedData)) {
+      console.warn('Invalid podcasts data format in storage, clearing...');
+      localStorage.removeItem(PODCASTS_STORAGE_KEY);
+      return [];
+    }
+    
+    // Validate and clean up each podcast object
+    const validPodcasts = parsedData.filter((podcast: any) => {
+      return podcast && 
+             typeof podcast.id === 'string' && 
+             typeof podcast.pdfId === 'string' &&
+             typeof podcast.title === 'string' &&
+             Array.isArray(podcast.conversation);
+    });
+    
+    // If we filtered out invalid podcasts, update storage later (not immediately)
+    if (validPodcasts.length !== parsedData.length) {
+      console.warn('Found invalid podcast data in storage, will clean up...');
+      // Schedule cleanup for after component mount
+      setTimeout(() => {
+        try {
+          localStorage.setItem(PODCASTS_STORAGE_KEY, JSON.stringify(validPodcasts));
+        } catch (error) {
+          console.error('Failed to cleanup podcast storage:', error);
+        }
+      }, 0);
+    }
+    
+    return validPodcasts;
+  } catch (error) {
+    console.error('Failed to load podcasts from storage:', error);
+    // Clear corrupted data
+    localStorage.removeItem(PODCASTS_STORAGE_KEY);
+    return [];
+  }
+};
+
 // Helper function to save documents to localStorage
 const saveDocumentsToStorage = (documents: Document[]) => {
   try {
@@ -137,10 +191,20 @@ const saveChatSessionsToStorage = (chatSessions: ChatSession[]) => {
   }
 };
 
+// Helper function to save podcasts to localStorage
+const savePodcastsToStorage = (podcasts: PodcastScript[]) => {
+  try {
+    localStorage.setItem(PODCASTS_STORAGE_KEY, JSON.stringify(podcasts));
+  } catch (error) {
+    console.error('Failed to save podcasts to storage:', error);
+  }
+};
+
 export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [documents, setDocuments] = useState<Document[]>(() => loadDocumentsFromStorage());
   const [messages, setMessages] = useState<Message[]>(() => loadMessagesFromStorage());
   const [chatSessions, setChatSessions] = useState<ChatSession[]>(() => loadChatSessionsFromStorage());
+  const [podcasts, setPodcasts] = useState<PodcastScript[]>(() => loadPodcastsFromStorage());
   const [currentChatSession, setCurrentChatSession] = useState<string | null>(null);
 
   // Save to localStorage whenever documents change
@@ -157,6 +221,11 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   useEffect(() => {
     saveChatSessionsToStorage(chatSessions);
   }, [chatSessions]);
+
+  // Save to localStorage whenever podcasts change
+  useEffect(() => {
+    savePodcastsToStorage(podcasts);
+  }, [podcasts]);
 
   // Create default chat sessions for new documents
   useEffect(() => {
@@ -358,6 +427,40 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return messages.filter(msg => msg.chatSessionId === sessionId);
   };
 
+  // Podcast methods
+  const addPodcast = (podcast: PodcastScript) => {
+    try {
+      console.log('Adding podcast to context:', podcast.id, podcast.title);
+      setPodcasts(prev => {
+        // Check if podcast with same ID already exists
+        const existingIndex = prev.findIndex(p => p.id === podcast.id);
+        if (existingIndex !== -1) {
+          // Update existing podcast
+          const updated = [...prev];
+          updated[existingIndex] = podcast;
+          return updated;
+        }
+        // Add new podcast
+        return [...prev, podcast];
+      });
+    } catch (error) {
+      console.error('Error adding podcast to context:', error);
+      throw error;
+    }
+  };
+
+  const removePodcast = (id: string) => {
+    setPodcasts(prev => prev.filter(p => p.id !== id));
+  };
+
+  const getPodcastById = (id: string): PodcastScript | undefined => {
+    return podcasts.find(p => p.id === id);
+  };
+
+  const getPodcastsForDocument = (pdfId: string): PodcastScript[] => {
+    return podcasts.filter(p => p.pdfId === pdfId);
+  };
+
   const value: DocumentContextType = {
     documents,
     addDocument,
@@ -376,6 +479,11 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setCurrentChatSession,
     addUserQuery,
     getUserQueries,
+    podcasts,
+    addPodcast,
+    removePodcast,
+    getPodcastById,
+    getPodcastsForDocument,
   };
 
   return (
@@ -388,7 +496,9 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 export const useDocuments = (): DocumentContextType => {
   const context = useContext(DocumentContext);
   if (!context) {
-    throw new Error('useDocuments must be used within a DocumentProvider');
+    console.error('useDocuments called outside of DocumentProvider!');
+    console.trace('Stack trace:');
+    throw new Error('useDocuments must be used within a DocumentProvider. Make sure the component is wrapped with DocumentProvider.');
   }
   return context;
 };

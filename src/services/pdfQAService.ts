@@ -1,6 +1,7 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import { PDFDocument, rgb } from 'pdf-lib';
-import { geminiService } from './geminiService';
+import { pdfChatGeminiService } from './geminiService';
+import { cleanMarkdownFormatting } from '../lib/utils';
 
 // Configure PDF.js worker - using a more reliable CDN
 if (typeof window !== 'undefined') {
@@ -81,19 +82,26 @@ export class PDFQAService {
         context.substring(0, 4000) + '...[truncated]' : 
         context;
 
-      const prompt = `You are an extractive question answering system. Given the following context, find the exact text that answers the question. Return only the specific text from the context that answers the question, without any additional explanation.
+      const prompt = `You are an extractive question answering system. Given the following context, find the exact text that answers the question.
+
+IMPORTANT INSTRUCTIONS:
+- Return only the specific text from the context that answers the question
+- Do NOT use any formatting symbols like *, **, #, [], or other markdown
+- Write in plain text only
+- Keep your response concise (maximum 100 words)
+- Do not add explanations, just extract the answer
 
 Context: ${truncatedContext}
 
 Question: ${question}
 
-Extract the exact answer from the context (return only the relevant text, maximum 100 words):`;
+Extract the exact answer in plain text:`;
 
-      console.log('Sending request to Gemini...');
-      const response = await geminiService.sendMessage(prompt, [], []);
-      const answer = response.trim();
-      console.log('Extracted answer:', answer.substring(0, 50) + '...');
-      return answer;
+      console.log('Sending request to PDF Chat Gemini...');
+      const response = await pdfChatGeminiService.sendMessage(prompt, [], []);
+      const cleanAnswer = cleanMarkdownFormatting(response.trim());
+      console.log('Extracted answer:', cleanAnswer.substring(0, 50) + '...');
+      return cleanAnswer;
     } catch (error) {
       console.error('Error running extractive QA:', error);
       return `Error: ${error.message || 'Could not process this question'}`;
