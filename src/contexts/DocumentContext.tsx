@@ -31,10 +31,12 @@ export interface Document {
   uploadDate: string;
   status: 'uploading' | 'processing_summary' | 'processed' | 'error';
   fileUrl?: string; // Store blob URL for the file
+  fileDataBase64?: string; // Store file data as base64 string for localStorage persistence
   content?: string; // For storing document content/text
   summary?: string; // AI-generated summary (backward compatibility - defaults to short)
   shortSummary?: string; // AI-generated short summary
   detailedSummary?: string; // AI-generated detailed summary
+  highlightPhrases?: string[]; // AI-extracted important phrases for highlighting
   validationReport?: ValidationReport; // PDF validation report
   validationStatus?: 'pending' | 'validating' | 'completed' | 'failed';
   validationText?: string; // Direct text validation result
@@ -80,6 +82,8 @@ interface DocumentContextType {
   addQuizAttempt: (attempt: QuizAttempt) => void;
   // Summary-related methods
   generateSummaryByType: (documentId: string, type: 'short' | 'detailed') => Promise<string>;
+  // Highlighting-related methods
+  generateHighlights: (documentId: string) => Promise<string[]>;
   getAttemptsForQuiz: (quizId: string) => QuizAttempt[];
   isGeneratingQuiz: boolean;
 }
@@ -114,7 +118,32 @@ const loadDocumentsFromStorage = (): Document[] => {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) return [];
-    return JSON.parse(stored);
+    
+    const loadedDocuments = JSON.parse(stored) as Document[];
+    
+    // Recreate blob URLs for documents that have base64 data
+    return loadedDocuments.map(doc => {
+      if (doc.fileDataBase64 && !doc.fileUrl) {
+        try {
+          // Convert base64 back to binary
+          const binaryString = atob(doc.fileDataBase64);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          
+          // Create new blob URL
+          const blob = new Blob([bytes], { type: 'application/pdf' });
+          const fileUrl = URL.createObjectURL(blob);
+          
+          return { ...doc, fileUrl };
+        } catch (error) {
+          console.error('Failed to recreate blob URL for document:', doc.name, error);
+          return doc;
+        }
+      }
+      return doc;
+    });
   } catch (error) {
     console.error('Failed to load documents from storage:', error);
     return [];
@@ -340,6 +369,10 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     // Create blob URL for the file
     const fileUrl = URL.createObjectURL(file);
     
+    // Store file data as base64 string for localStorage persistence
+    const arrayBuffer = await file.arrayBuffer();
+    const fileDataBase64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    
     const newDocument: Document = {
       id: documentId,
       name: file.name,
@@ -348,6 +381,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       uploadDate: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
       status: 'uploading',
       fileUrl,
+      fileDataBase64,
     };
 
     setDocuments(prev => [...prev, newDocument]);
@@ -393,6 +427,12 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const removeDocument = (id: string) => {
+    // Clean up blob URL to prevent memory leaks
+    const document = documents.find(doc => doc.id === id);
+    if (document?.fileUrl) {
+      URL.revokeObjectURL(document.fileUrl);
+    }
+    
     setDocuments(prev => prev.filter(doc => doc.id !== id));
   };
 
@@ -483,24 +523,49 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const getFileFromStore = async (documentId: string): Promise<File | null> => {
     const document = documents.find(d => d.id === documentId);
-    if (!document?.fileUrl) {
+    if (!document) {
+      console.error('Document not found for ID:', documentId);
       return null;
     }
     
     try {
-      // Fetch the file from the blob URL
-      const response = await fetch(document.fileUrl);
-      const blob = await response.blob();
+      // First try to use stored file data (most reliable)
+      if (document.fileDataBase64) {
+        // Convert base64 back to binary
+        const binaryString = atob(document.fileDataBase64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        
+        const file = new File([bytes], document.name, {
+          type: 'application/pdf',
+          lastModified: new Date(document.uploadDate).getTime(),
+        });
+        return file;
+      }
       
-      // Create a File object from the blob
-      const file = new File([blob], document.name, {
-        type: 'application/pdf',
-        lastModified: new Date(document.uploadDate).getTime(),
-      });
+      // Fallback to blob URL if file data is not available
+      if (document.fileUrl) {
+        const response = await fetch(document.fileUrl);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch from blob URL: ${response.status}`);
+        }
+        const blob = await response.blob();
+        
+        // Create a File object from the blob
+        const file = new File([blob], document.name, {
+          type: 'application/pdf',
+          lastModified: new Date(document.uploadDate).getTime(),
+        });
+        
+        return file;
+      }
       
-      return file;
+      console.error('No file data or blob URL available for document:', document.name);
+      return null;
     } catch (error) {
-      console.error('Failed to fetch file from blob URL:', error);
+      console.error('Failed to get file from store:', error);
       return null;
     }
   };
@@ -650,6 +715,29 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  // Highlighting generation function
+  const generateHighlights = async (documentId: string): Promise<string[]> => {
+    const document = getDocumentById(documentId);
+    if (!document) {
+      throw new Error('Document not found');
+    }
+
+    if (!document.content) {
+      throw new Error('Document content not available');
+    }
+
+    try {
+      const phrases = await geminiService.extractImportantPhrases(document.name, document.content);
+      
+      // Update document with highlight phrases
+      updateDocument(documentId, { highlightPhrases: phrases });
+      return phrases;
+    } catch (error) {
+      console.error('Failed to generate highlights:', error);
+      throw error;
+    }
+  };
+
   // Quiz-related functions
   const addQuiz = (quiz: Quiz) => {
     setQuizzes(prev => [...prev, quiz]);
@@ -729,6 +817,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     getAttemptsForQuiz,
     isGeneratingQuiz,
     generateSummaryByType,
+    generateHighlights,
   };
 
   return (

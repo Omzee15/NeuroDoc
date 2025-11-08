@@ -1,5 +1,11 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { cleanMarkdownFormatting } from '../lib/utils';
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Configure PDF.js worker
+if (typeof window !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = '/js/pdf.worker.min.mjs';
+}
 
 // Initialize Gemini AI with PDF Chat API key (since this service is used for PDF operations)
 const apiKey = import.meta.env.VITE_PDF_CHAT_GEMINI_API;
@@ -103,11 +109,43 @@ Provide a direct, factual response in plain text:`;
   }
 
   async extractTextFromPDF(file: File): Promise<string> {
-    // Placeholder for PDF text extraction
-    // In a real implementation, you would use a PDF parsing library
-    // like pdf-parse or pdfjs-dist to extract text
-    return `[Text content from ${file.name} - This is a placeholder. 
-In a real implementation, this would contain the actual extracted text from the PDF.]`;
+    try {
+      console.log('Extracting text from PDF:', file.name);
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      
+      let fullText = '';
+      
+      for (let i = 1; i <= pdf.numPages; i++) {
+        try {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          
+          const pageText = textContent.items
+            .map((item: any) => item.str || '')
+            .join(' ')
+            .trim();
+          
+          if (pageText) {
+            fullText += pageText + '\n';
+          }
+        } catch (pageError) {
+          console.warn(`Error extracting text from page ${i}:`, pageError);
+          // Continue with other pages
+        }
+      }
+      
+      if (!fullText.trim()) {
+        console.warn('No text extracted from PDF');
+        return `No readable text content found in ${file.name}. This might be an image-based PDF.`;
+      }
+      
+      console.log('Successfully extracted text from PDF:', fullText.length, 'characters');
+      return fullText.trim();
+    } catch (error) {
+      console.error('Error extracting text from PDF:', error);
+      return `Failed to extract text from ${file.name}. Error: ${error.message || 'Unknown error'}`;
+    }
   }
 
   async generatePDFSummary(title: string, content: string, type: 'short' | 'detailed' = 'short'): Promise<string> {
@@ -165,6 +203,87 @@ Comprehensive Summary in plain text:`
     } catch (error) {
       console.error('Error generating PDF summary:', error);
       return `Unable to generate ${type} summary for ${title}. Please try again later.`;
+    }
+  }
+
+  async extractImportantPhrases(title: string, content: string): Promise<string[]> {
+    try {
+      console.log('Extracting important phrases from:', title);
+      console.log('Content preview (first 500 chars):', content.substring(0, 500));
+      
+      // Check if we have actual content or placeholder
+      if (content.includes('placeholder') || content.includes('This is a placeholder') || content.length < 100) {
+        console.warn('Received placeholder or insufficient content for highlighting');
+        return [];
+      }
+
+      const prompt = `You are an expert text analyzer. Extract ONLY the most critical and important phrases from the following PDF document that truly deserve highlighting.
+
+Document Title: ${title}
+
+Document Content:
+${content}
+
+INSTRUCTIONS:
+- Identify ONLY 5-8 of the MOST important and unique phrases that actually exist in the text
+- Focus on crucial concepts, technical terms, key findings, and specific terminology
+- Extract exact phrases as they appear in the text (preserve original wording and capitalization)
+- Each phrase should be 3-8 words long for optimal highlighting
+- Prioritize technical terms, proper nouns, key statistics, and domain-specific concepts
+- Avoid common words, generic phrases, and overly broad terms
+- Do NOT include phrases like "the study shows", "according to", "it is important"
+- Focus on substantive content: specific technologies, methodologies, metrics, names
+- IMPORTANT: Return ONLY the phrases separated by commas, no other text or formatting
+- Do not include any explanations, numbering, or additional commentary
+- Only return phrases that ACTUALLY exist in the provided text
+
+Example of good phrases: "machine learning algorithms", "95% accuracy rate", "neural network architecture", "Python programming", "data preprocessing techniques"
+
+Example of bad phrases: "the research shows", "it is important", "according to the study", "the results indicate"
+
+Most important phrases to highlight:`;
+
+      const result = await this.model.generateContent(prompt);
+      const response = await result.response;
+      const rawText = response.text().trim();
+      
+      console.log('Gemini raw response:', rawText);
+      
+      // Split by comma and clean up each phrase
+      const phrases = rawText
+        .split(',')
+        .map(phrase => phrase.trim().replace(/^["']|["']$/g, '')) // Remove quotes
+        .filter(phrase => {
+          // More strict filtering - check if phrase actually exists in content
+          const cleanPhrase = phrase.toLowerCase();
+          const contentLower = content.toLowerCase();
+          
+          const isValid = phrase.length >= 3 && 
+                         phrase.length <= 50 && 
+                         phrase.split(' ').length <= 8 && // Max 8 words
+                         contentLower.includes(cleanPhrase) && // Must exist in content
+                         !cleanPhrase.includes('according to') &&
+                         !cleanPhrase.includes('the study') &&
+                         !cleanPhrase.includes('research shows') &&
+                         !cleanPhrase.includes('it is') &&
+                         !cleanPhrase.includes('this paper') &&
+                         !cleanPhrase.includes('placeholder') &&
+                         !cleanPhrase.includes('extracted text') &&
+                         !cleanPhrase.includes('implementation');
+          
+          if (!isValid && phrase.length > 0) {
+            console.log('Filtered out phrase:', phrase, 'Reason: Not found in content or generic');
+          }
+          
+          return isValid;
+        })
+        .slice(0, 8); // Limit to 8 phrases max
+      
+      console.log('Final filtered phrases:', phrases);
+      return phrases;
+    } catch (error) {
+      console.error('Error extracting important phrases:', error);
+      return [];
     }
   }
 }

@@ -2,20 +2,23 @@ import { useParams } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FileText, Download, Trash2, Eye, MessageSquare, Brain, Mic, CheckCircle, RefreshCw, Shield } from "lucide-react";
+import { FileText, Download, Trash2, Eye, EyeOff, MessageSquare, Brain, Mic, CheckCircle, RefreshCw, Shield, Highlighter } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useDocuments } from "@/contexts/DocumentContext";
 import { useToast } from "@/hooks/use-toast";
 import { geminiService } from "@/services/geminiService";
 import { useState } from "react";
+import PDFViewer from "@/components/PDFViewer";
 
 const PDFDetail = () => {
   const { id } = useParams();
-  const { getDocumentById, removeDocument, updateDocument, generateDirectValidation, generateSummaryByType } = useDocuments();
+  const { getDocumentById, removeDocument, updateDocument, generateDirectValidation, generateSummaryByType, generateHighlights } = useDocuments();
   const { toast } = useToast();
   const [regeneratingSummary, setRegeneratingSummary] = useState(false);
   const [generatingValidation, setGeneratingValidation] = useState(false);
   const [selectedSummaryType, setSelectedSummaryType] = useState<'short' | 'detailed'>('short');
+  const [generatingHighlights, setGeneratingHighlights] = useState(false);
+  const [showHighlights, setShowHighlights] = useState(false);
   
   const pdf = getDocumentById(id || '');
 
@@ -28,6 +31,28 @@ const PDFDetail = () => {
       });
       // Navigate back to main page
       window.location.href = '/';
+    }
+  };
+
+  const handleGenerateHighlights = async () => {
+    if (!pdf || !pdf.content) return;
+    
+    setGeneratingHighlights(true);
+    try {
+      const phrases = await generateHighlights(pdf.id);
+      setShowHighlights(true);
+      toast({
+        title: 'Highlights Generated',
+        description: `Generated ${phrases.length} important phrases for highlighting.`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to generate highlights. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setGeneratingHighlights(false);
     }
   };
 
@@ -151,6 +176,24 @@ const PDFDetail = () => {
             <Button variant="outline" className="justify-start gap-2">
               <Mic className="h-4 w-4" />
               Create Podcast
+            </Button>
+            <Button 
+              variant="outline" 
+              className="justify-start gap-2"
+              onClick={handleGenerateHighlights}
+              disabled={generatingHighlights || !pdf.content}
+            >
+              {generatingHighlights ? (
+                <>
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  Enhancing PDF...
+                </>
+              ) : (
+                <>
+                  <Highlighter className="h-4 w-4" />
+                  Enhance PDF
+                </>
+              )}
             </Button>
             <Button variant="outline" className="justify-start gap-2">
               <Download className="h-4 w-4" />
@@ -329,6 +372,78 @@ const PDFDetail = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* PDF Highlighting Controls */}
+      {pdf.status === 'processed' && pdf.content && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Highlighter className="h-5 w-5" />
+              PDF Highlighting
+            </CardTitle>
+            <CardDescription>
+              Generate and view important phrases highlighted in the PDF
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-4 mb-4">
+              <Button
+                variant="outline"
+                onClick={handleGenerateHighlights}
+                disabled={generatingHighlights}
+              >
+                {generatingHighlights ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Highlighter className="h-4 w-4 mr-2" />
+                    {pdf.highlightPhrases ? 'Regenerate Highlights' : 'Generate Highlights'}
+                  </>
+                )}
+              </Button>
+
+              {pdf.highlightPhrases && pdf.highlightPhrases.length > 0 && (
+                <Button
+                  variant="outline"
+                  onClick={() => setShowHighlights(!showHighlights)}
+                >
+                  {showHighlights ? (
+                    <>
+                      <EyeOff className="h-4 w-4 mr-2" />
+                      Hide Highlights
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="h-4 w-4 mr-2" />
+                      Show Highlights
+                    </>
+                  )}
+                </Button>
+              )}
+
+              {pdf.highlightPhrases && pdf.highlightPhrases.length > 0 && (
+                <div className="text-sm text-muted-foreground">
+                  {pdf.highlightPhrases.length} phrases available for highlighting
+                </div>
+              )}
+            </div>
+
+            {/* PDF Viewer with Highlighting */}
+            {pdf.fileUrl && (
+              <PDFViewer
+                fileUrl={pdf.fileUrl}
+                fileName={pdf.name}
+                highlightPhrases={pdf.highlightPhrases || []}
+                showHighlights={showHighlights}
+                onHighlightsToggle={setShowHighlights}
+              />
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 };
