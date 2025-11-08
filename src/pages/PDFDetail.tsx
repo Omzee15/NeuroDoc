@@ -1,6 +1,7 @@
 import { useParams } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FileText, Download, Trash2, Eye, MessageSquare, Brain, Mic, CheckCircle, RefreshCw, Shield } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useDocuments } from "@/contexts/DocumentContext";
@@ -10,10 +11,11 @@ import { useState } from "react";
 
 const PDFDetail = () => {
   const { id } = useParams();
-  const { getDocumentById, removeDocument, updateDocument, generateDirectValidation } = useDocuments();
+  const { getDocumentById, removeDocument, updateDocument, generateDirectValidation, generateSummaryByType } = useDocuments();
   const { toast } = useToast();
   const [regeneratingSummary, setRegeneratingSummary] = useState(false);
   const [generatingValidation, setGeneratingValidation] = useState(false);
+  const [selectedSummaryType, setSelectedSummaryType] = useState<'short' | 'detailed'>('short');
   
   const pdf = getDocumentById(id || '');
 
@@ -34,11 +36,10 @@ const PDFDetail = () => {
     
     setRegeneratingSummary(true);
     try {
-      const newSummary = await geminiService.generatePDFSummary(pdf.name, pdf.content);
-      updateDocument(pdf.id, { summary: newSummary });
+      const newSummary = await generateSummaryByType(pdf.id, selectedSummaryType);
       toast({
         title: 'Summary Regenerated',
-        description: 'The AI summary has been updated successfully.',
+        description: `The AI ${selectedSummaryType} summary has been updated successfully.`,
       });
     } catch (error) {
       toast({
@@ -233,24 +234,35 @@ const PDFDetail = () => {
               <CardDescription>Automatically generated summary</CardDescription>
             </div>
             {pdf.status === 'processed' && pdf.content && (
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={handleRegenerateSummary}
-                disabled={regeneratingSummary}
-              >
-                {regeneratingSummary ? (
-                  <>
-                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                    Regenerating...
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                    Regenerate
-                  </>
-                )}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Select value={selectedSummaryType} onValueChange={(value: 'short' | 'detailed') => setSelectedSummaryType(value)}>
+                  <SelectTrigger className="w-32">
+                    <SelectValue placeholder="Summary type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="short">Short</SelectItem>
+                    <SelectItem value="detailed">Detailed</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleRegenerateSummary}
+                  disabled={regeneratingSummary}
+                >
+                  {regeneratingSummary ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Generate {selectedSummaryType}
+                    </>
+                  )}
+                </Button>
+              </div>
             )}
           </div>
         </CardHeader>
@@ -268,17 +280,52 @@ const PDFDetail = () => {
               Failed to process document. Please try re-uploading.
             </p>
           )}
-          {pdf.status === 'processed' && pdf.summary && (
-            <div className="prose prose-sm max-w-none">
-              <p className="text-sm leading-relaxed whitespace-pre-line">
-                {pdf.summary}
-              </p>
+          {pdf.status === 'processed' && (
+            <div>
+              {(() => {
+                const currentSummary = selectedSummaryType === 'short' 
+                  ? (pdf.shortSummary || pdf.summary) 
+                  : pdf.detailedSummary;
+                
+                if (currentSummary) {
+                  return (
+                    <div className="prose prose-sm max-w-none">
+                      <p className="text-sm leading-relaxed whitespace-pre-line">
+                        {currentSummary}
+                      </p>
+                    </div>
+                  );
+                } else {
+                  return (
+                    <div className="text-center py-8">
+                      <p className="text-sm text-muted-foreground mb-4">
+                        {selectedSummaryType === 'short' 
+                          ? 'Short summary not available yet.' 
+                          : 'Detailed summary not available yet.'}
+                      </p>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={handleRegenerateSummary}
+                        disabled={regeneratingSummary}
+                      >
+                        {regeneratingSummary ? (
+                          <>
+                            <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                            Generating...
+                          </>
+                        ) : (
+                          <>
+                            <Brain className="h-4 w-4 mr-2" />
+                            Generate {selectedSummaryType} summary
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  );
+                }
+              })()}
             </div>
-          )}
-          {pdf.status === 'processed' && !pdf.summary && (
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              Summary generation is in progress. Please refresh the page in a moment.
-            </p>
           )}
         </CardContent>
       </Card>

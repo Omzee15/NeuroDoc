@@ -110,9 +110,10 @@ Provide a direct, factual response in plain text:`;
 In a real implementation, this would contain the actual extracted text from the PDF.]`;
   }
 
-  async generatePDFSummary(title: string, content: string): Promise<string> {
+  async generatePDFSummary(title: string, content: string, type: 'short' | 'detailed' = 'short'): Promise<string> {
     try {
-      const prompt = `You are a professional document summarizer. Create a brief, concise summary of the following PDF document.
+      const prompts = {
+        short: `You are a professional document summarizer. Create a brief, concise summary of the following PDF document.
 
 Document Title: ${title}
 
@@ -129,8 +130,31 @@ INSTRUCTIONS:
 - IMPORTANT: Write in plain text without any formatting symbols (no *, **, #, etc.)
 - Present information in natural sentences without special formatting
 
-Brief Summary in plain text:`;
+Brief Summary in plain text:`,
 
+        detailed: `You are a professional document summarizer. Create a comprehensive, detailed summary of the following PDF document.
+
+Document Title: ${title}
+
+Document Content:
+${content}
+
+INSTRUCTIONS:
+- Create a detailed summary of 15-25 lines (approximately 300-500 words)
+- Include all major topics, subtopics, and key findings
+- Provide context and background information when relevant
+- Include important methodologies, processes, or frameworks mentioned
+- Cover conclusions, recommendations, and implications
+- Mention specific data, statistics, or examples when significant
+- Organize information logically with smooth transitions
+- Use clear, professional language
+- IMPORTANT: Write in plain text without any formatting symbols (no *, **, #, etc.)
+- Present information in well-structured paragraphs
+
+Comprehensive Summary in plain text:`
+      };
+
+      const prompt = prompts[type];
       const result = await this.model.generateContent(prompt);
       const response = await result.response;
       const rawText = response.text();
@@ -140,7 +164,7 @@ Brief Summary in plain text:`;
       return cleanText;
     } catch (error) {
       console.error('Error generating PDF summary:', error);
-      return `Unable to generate summary for ${title}. Please try again later.`;
+      return `Unable to generate ${type} summary for ${title}. Please try again later.`;
     }
   }
 }

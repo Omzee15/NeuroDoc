@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { geminiService } from '../services/geminiService';
 import { PodcastScript } from '../services/podcastService';
 import { ValidationReport, pdfValidationService } from '../services/pdfValidationService';
+import { Quiz, QuizAttempt, quizService, QuizGenerationOptions } from '../services/quizService';
 
 export interface Message {
   id: string;
@@ -31,7 +32,9 @@ export interface Document {
   status: 'uploading' | 'processing_summary' | 'processed' | 'error';
   fileUrl?: string; // Store blob URL for the file
   content?: string; // For storing document content/text
-  summary?: string; // AI-generated summary
+  summary?: string; // AI-generated summary (backward compatibility - defaults to short)
+  shortSummary?: string; // AI-generated short summary
+  detailedSummary?: string; // AI-generated detailed summary
   validationReport?: ValidationReport; // PDF validation report
   validationStatus?: 'pending' | 'validating' | 'completed' | 'failed';
   validationText?: string; // Direct text validation result
@@ -66,6 +69,19 @@ interface DocumentContextType {
   getValidationReport: (documentId: string) => ValidationReport | undefined;
   generateDirectValidation: (documentId: string) => Promise<string>;
   getValidationText: (documentId: string) => string | undefined;
+  // Quiz-related methods
+  quizzes: Quiz[];
+  addQuiz: (quiz: Quiz) => void;
+  removeQuiz: (id: string) => void;
+  getQuizById: (id: string) => Quiz | undefined;
+  getQuizzesForDocument: (pdfId: string) => Quiz[];
+  generateQuiz: (options: QuizGenerationOptions) => Promise<Quiz>;
+  quizAttempts: QuizAttempt[];
+  addQuizAttempt: (attempt: QuizAttempt) => void;
+  // Summary-related methods
+  generateSummaryByType: (documentId: string, type: 'short' | 'detailed') => Promise<string>;
+  getAttemptsForQuiz: (quizId: string) => QuizAttempt[];
+  isGeneratingQuiz: boolean;
 }
 
 const DocumentContext = createContext<DocumentContextType | undefined>(undefined);
@@ -74,6 +90,8 @@ const STORAGE_KEY = 'neurodoc_documents';
 const MESSAGES_STORAGE_KEY = 'neurodoc_chat_messages';
 const CHAT_SESSIONS_STORAGE_KEY = 'neurodoc_chat_sessions';
 const PODCASTS_STORAGE_KEY = 'neurodoc_podcasts';
+const QUIZZES_STORAGE_KEY = 'neurodoc_quizzes';
+const QUIZ_ATTEMPTS_STORAGE_KEY = 'neurodoc_quiz_attempts';
 
 // Helper function to generate mock pages count based on file size
 const estimatePages = (sizeInBytes: number): number => {
@@ -173,6 +191,30 @@ const loadPodcastsFromStorage = (): PodcastScript[] => {
   }
 };
 
+// Helper function to load quizzes from localStorage
+const loadQuizzesFromStorage = (): Quiz[] => {
+  try {
+    const stored = localStorage.getItem(QUIZZES_STORAGE_KEY);
+    if (!stored) return [];
+    return JSON.parse(stored);
+  } catch (error) {
+    console.error('Failed to load quizzes from storage:', error);
+    return [];
+  }
+};
+
+// Helper function to load quiz attempts from localStorage
+const loadQuizAttemptsFromStorage = (): QuizAttempt[] => {
+  try {
+    const stored = localStorage.getItem(QUIZ_ATTEMPTS_STORAGE_KEY);
+    if (!stored) return [];
+    return JSON.parse(stored);
+  } catch (error) {
+    console.error('Failed to load quiz attempts from storage:', error);
+    return [];
+  }
+};
+
 // Helper function to save documents to localStorage
 const saveDocumentsToStorage = (documents: Document[]) => {
   try {
@@ -209,12 +251,33 @@ const savePodcastsToStorage = (podcasts: PodcastScript[]) => {
   }
 };
 
+// Helper function to save quizzes to localStorage
+const saveQuizzesToStorage = (quizzes: Quiz[]) => {
+  try {
+    localStorage.setItem(QUIZZES_STORAGE_KEY, JSON.stringify(quizzes));
+  } catch (error) {
+    console.error('Failed to save quizzes to storage:', error);
+  }
+};
+
+// Helper function to save quiz attempts to localStorage
+const saveQuizAttemptsToStorage = (attempts: QuizAttempt[]) => {
+  try {
+    localStorage.setItem(QUIZ_ATTEMPTS_STORAGE_KEY, JSON.stringify(attempts));
+  } catch (error) {
+    console.error('Failed to save quiz attempts to storage:', error);
+  }
+};
+
 export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [documents, setDocuments] = useState<Document[]>(() => loadDocumentsFromStorage());
   const [messages, setMessages] = useState<Message[]>(() => loadMessagesFromStorage());
   const [chatSessions, setChatSessions] = useState<ChatSession[]>(() => loadChatSessionsFromStorage());
   const [podcasts, setPodcasts] = useState<PodcastScript[]>(() => loadPodcastsFromStorage());
+  const [quizzes, setQuizzes] = useState<Quiz[]>(() => loadQuizzesFromStorage());
+  const [quizAttempts, setQuizAttempts] = useState<QuizAttempt[]>(() => loadQuizAttemptsFromStorage());
   const [currentChatSession, setCurrentChatSession] = useState<string | null>(null);
+  const [isGeneratingQuiz, setIsGeneratingQuiz] = useState<boolean>(false);
 
   // Save to localStorage whenever documents change
   useEffect(() => {
@@ -235,6 +298,16 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   useEffect(() => {
     savePodcastsToStorage(podcasts);
   }, [podcasts]);
+
+  // Save to localStorage whenever quizzes change
+  useEffect(() => {
+    saveQuizzesToStorage(quizzes);
+  }, [quizzes]);
+
+  // Save to localStorage whenever quiz attempts change
+  useEffect(() => {
+    saveQuizAttemptsToStorage(quizAttempts);
+  }, [quizAttempts]);
 
   // Create default chat sessions for new documents
   useEffect(() => {
@@ -293,14 +366,14 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         )
       );
       
-      // Generate AI summary
-      const summary = await geminiService.generatePDFSummary(file.name, content);
+      // Generate AI summary (default to short summary for initial processing)
+      const summary = await geminiService.generatePDFSummary(file.name, content, 'short');
       
       // Update document with summary and mark as processed
       setDocuments(prev => 
         prev.map(doc => 
           doc.id === newDocument.id 
-            ? { ...doc, status: 'processed' as const, summary }
+            ? { ...doc, status: 'processed' as const, summary, shortSummary: summary }
             : doc
         )
       );
@@ -546,6 +619,78 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return document?.validationText;
   };
 
+  // Summary generation function
+  const generateSummaryByType = async (documentId: string, type: 'short' | 'detailed'): Promise<string> => {
+    const document = getDocumentById(documentId);
+    if (!document) {
+      throw new Error('Document not found');
+    }
+
+    if (!document.content) {
+      throw new Error('Document content not available');
+    }
+
+    try {
+      const summary = await geminiService.generatePDFSummary(document.name, document.content, type);
+      
+      // Update document with the appropriate summary type
+      const updates: Partial<Document> = {};
+      if (type === 'short') {
+        updates.shortSummary = summary;
+        updates.summary = summary; // For backward compatibility
+      } else {
+        updates.detailedSummary = summary;
+      }
+      
+      updateDocument(documentId, updates);
+      return summary;
+    } catch (error) {
+      console.error(`Failed to generate ${type} summary:`, error);
+      throw error;
+    }
+  };
+
+  // Quiz-related functions
+  const addQuiz = (quiz: Quiz) => {
+    setQuizzes(prev => [...prev, quiz]);
+  };
+
+  const removeQuiz = (id: string) => {
+    setQuizzes(prev => prev.filter(quiz => quiz.id !== id));
+    // Also remove related attempts
+    setQuizAttempts(prev => prev.filter(attempt => attempt.quizId !== id));
+  };
+
+  const getQuizById = (id: string): Quiz | undefined => {
+    return quizzes.find(quiz => quiz.id === id);
+  };
+
+  const getQuizzesForDocument = (pdfId: string): Quiz[] => {
+    return quizzes.filter(quiz => quiz.pdfId === pdfId);
+  };
+
+  const generateQuiz = async (options: QuizGenerationOptions): Promise<Quiz> => {
+    setIsGeneratingQuiz(true);
+    try {
+      const quiz = await quizService.generateQuiz(options);
+      addQuiz(quiz);
+      return quiz;
+    } catch (error) {
+      console.error('Failed to generate quiz:', error);
+      throw error;
+    } finally {
+      setIsGeneratingQuiz(false);
+    }
+  };
+
+  const addQuizAttempt = (attempt: QuizAttempt) => {
+    setQuizAttempts(prev => [...prev, attempt]);
+  };
+
+  const getAttemptsForQuiz = (quizId: string): QuizAttempt[] => {
+    return quizAttempts.filter(attempt => attempt.quizId === quizId);
+  };
+
   const value: DocumentContextType = {
     documents,
     addDocument,
@@ -573,6 +718,17 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     getValidationReport,
     generateDirectValidation,
     getValidationText,
+    quizzes,
+    addQuiz,
+    removeQuiz,
+    getQuizById,
+    getQuizzesForDocument,
+    generateQuiz,
+    quizAttempts,
+    addQuizAttempt,
+    getAttemptsForQuiz,
+    isGeneratingQuiz,
+    generateSummaryByType,
   };
 
   return (
