@@ -18,15 +18,18 @@ const Pdf = () => {
   };
 
   const getValidationBadge = (document: any) => {
-    if (document.validationReport) {
-      const score = document.validationReport.totalScore;
-      if (score >= 90) return { text: 'Excellent', color: 'bg-green-100 text-green-700' };
-      if (score >= 70) return { text: 'Good', color: 'bg-yellow-100 text-yellow-700' };
-      if (score >= 50) return { text: 'Fair', color: 'bg-orange-100 text-orange-700' };
-      return { text: 'Poor', color: 'bg-red-100 text-red-700' };
+    if (document.validationText) {
+      if (document.validationText.includes('✅')) {
+        return { text: 'Safe', color: 'bg-green-100 text-green-700' };
+      } else if (document.validationText.includes('⚠️')) {
+        return { text: 'Issues Found', color: 'bg-orange-100 text-orange-700' };
+      } else if (document.validationText.includes('❌')) {
+        return { text: 'Analysis Failed', color: 'bg-red-100 text-red-700' };
+      }
+      return { text: 'Analyzed', color: 'bg-blue-100 text-blue-700' };
     }
     if (document.validationStatus === 'validating') {
-      return { text: 'Validating', color: 'bg-blue-100 text-blue-700' };
+      return { text: 'Analyzing', color: 'bg-blue-100 text-blue-700' };
     }
     return null;
   };

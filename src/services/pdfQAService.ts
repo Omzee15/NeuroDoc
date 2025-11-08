@@ -3,9 +3,9 @@ import { PDFDocument, rgb } from 'pdf-lib';
 import { pdfChatGeminiService } from './geminiService';
 import { cleanMarkdownFormatting } from '../lib/utils';
 
-// Configure PDF.js worker - using a more reliable CDN
+// Configure PDF.js worker - use local worker instead of CDN
 if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = '/js/pdf.worker.min.mjs';
 }
 
 export interface QAHighlight {

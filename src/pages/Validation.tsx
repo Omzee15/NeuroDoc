@@ -1,8 +1,6 @@
 import React, { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { 
   Globe, 
   CheckCircle, 
@@ -10,22 +8,17 @@ import {
   AlertCircle, 
   Play, 
   FileText, 
-  Calendar, 
-  Clock,
+  Calendar,
   Loader2,
   AlertTriangle,
-  Eye,
   RefreshCw
 } from "lucide-react";
 import { useDocuments } from "@/contexts/DocumentContext";
 import { useToast } from "@/hooks/use-toast";
-import ValidationReportView from "@/components/ValidationReportView";
-import { ValidationReport } from "@/services/pdfValidationService";
 
 const Validation = () => {
-  const { documents, generateValidationReport, getValidationReport } = useDocuments();
+  const { documents, generateDirectValidation, getValidationText } = useDocuments();
   const { toast } = useToast();
-  const [selectedReport, setSelectedReport] = useState<ValidationReport | null>(null);
   const [generatingValidation, setGeneratingValidation] = useState<string | null>(null);
 
   const processedDocuments = documents.filter(doc => doc.status === 'processed');
@@ -34,10 +27,10 @@ const Validation = () => {
     setGeneratingValidation(documentId);
     
     try {
-      const report = await generateValidationReport(documentId);
+      const validationText = await generateDirectValidation(documentId);
       toast({
         title: "Content Safety Analysis Complete",
-        description: `Validation completed with ${report.totalIssues} ${report.totalIssues === 0 ? 'issues found - content appears safe' : 'safety concerns identified'}.`,
+        description: "Analysis completed successfully. Check the results below.",
       });
     } catch (error) {
       console.error('Validation failed:', error);
@@ -48,13 +41,6 @@ const Validation = () => {
       });
     } finally {
       setGeneratingValidation(null);
-    }
-  };
-
-  const handleViewReport = (documentId: string) => {
-    const report = getValidationReport(documentId);
-    if (report) {
-      setSelectedReport(report);
     }
   };
 
@@ -120,7 +106,7 @@ const Validation = () => {
 
       <div className="grid gap-4">
         {processedDocuments.map((document) => {
-          const report = getValidationReport(document.id);
+          const validationText = getValidationText(document.id);
           const isValidating = generatingValidation === document.id || document.validationStatus === 'validating';
           
           return (
@@ -147,16 +133,35 @@ const Validation = () => {
                   </div>
                   <div className="flex flex-col items-end gap-2">
                     {/* Status Badge */}
-                    {document.validationStatus === 'completed' && report && (
+                    {document.validationStatus === 'completed' && validationText && (
                       <div className="flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4 text-green-500" />
-                        <span className="text-green-500 text-sm font-medium">Validated</span>
+                        {validationText.includes('✅') ? (
+                          <>
+                            <CheckCircle className="h-4 w-4 text-green-500" />
+                            <span className="text-green-500 text-sm font-medium">Safe</span>
+                          </>
+                        ) : validationText.includes('⚠️') ? (
+                          <>
+                            <AlertTriangle className="h-4 w-4 text-orange-500" />
+                            <span className="text-orange-500 text-sm font-medium">Issues Found</span>
+                          </>
+                        ) : validationText.includes('❌') ? (
+                          <>
+                            <XCircle className="h-4 w-4 text-red-500" />
+                            <span className="text-red-500 text-sm font-medium">Analysis Failed</span>
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle className="h-4 w-4 text-blue-500" />
+                            <span className="text-blue-500 text-sm font-medium">Analyzed</span>
+                          </>
+                        )}
                       </div>
                     )}
                     {document.validationStatus === 'validating' && (
                       <div className="flex items-center gap-2">
                         <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
-                        <span className="text-blue-500 text-sm font-medium">Validating</span>
+                        <span className="text-blue-500 text-sm font-medium">Analyzing</span>
                       </div>
                     )}
                     {document.validationStatus === 'failed' && (
@@ -168,7 +173,7 @@ const Validation = () => {
                     {!document.validationStatus && (
                       <div className="flex items-center gap-2">
                         <AlertCircle className="h-4 w-4 text-gray-500" />
-                        <span className="text-gray-500 text-sm font-medium">Not Validated</span>
+                        <span className="text-gray-500 text-sm font-medium">Not Analyzed</span>
                       </div>
                     )}
                   </div>
@@ -176,54 +181,28 @@ const Validation = () => {
               </CardHeader>
               
               <CardContent>
-                {report && document.validationStatus === 'completed' ? (
+                {validationText && document.validationStatus === 'completed' ? (
                   <div className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="text-center p-4 bg-gray-50 rounded-lg">
-                        <div className={`text-2xl font-bold ${getScoreColor(report.totalScore)}`}>
-                          {report.totalScore}%
+                    {/* Validation Results */}
+                    <div className={`p-4 rounded-lg border-l-4 ${
+                      validationText.includes('✅') ? 'bg-green-50 border-l-green-500' :
+                      validationText.includes('⚠️') ? 'bg-orange-50 border-l-orange-500' :
+                      validationText.includes('❌') ? 'bg-red-50 border-l-red-500' :
+                      'bg-blue-50 border-l-blue-500'
+                    }`}>
+                      <div className="prose prose-sm max-w-none">
+                        <div className={`whitespace-pre-wrap ${
+                          validationText.includes('✅') ? 'text-green-700' :
+                          validationText.includes('⚠️') ? 'text-orange-700' :
+                          validationText.includes('❌') ? 'text-red-700' :
+                          'text-blue-700'
+                        }`}>
+                          {validationText}
                         </div>
-                        <div className="text-sm text-muted-foreground">Overall Score</div>
-                      </div>
-                      <div className="text-center p-4 bg-gray-50 rounded-lg">
-                        <div className="text-2xl font-bold text-red-600">
-                          {report.totalIssues}
-                        </div>
-                        <div className="text-sm text-muted-foreground">Issues Found</div>
-                      </div>
-                      <div className="text-center p-4 bg-gray-50 rounded-lg">
-                        <div className="text-2xl font-bold text-blue-600">
-                          {report.categories.length}
-                        </div>
-                        <div className="text-sm text-muted-foreground">Categories</div>
-                      </div>
-                    </div>
-                    
-                    {/* Categories Summary */}
-                    <div className="space-y-2">
-                      <h4 className="text-sm font-medium text-muted-foreground">Issues by Category</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {report.categories.map((category) => (
-                          <Badge
-                            key={category.name}
-                            variant="outline"
-                            className={`${getSeverityBadgeColor(category.issues.length, category.score)}`}
-                          >
-                            {category.name}: {category.issues.length} issues
-                          </Badge>
-                        ))}
                       </div>
                     </div>
 
                     <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        onClick={() => handleViewReport(document.id)}
-                        className="gap-2"
-                      >
-                        <Eye className="h-4 w-4" />
-                        View Detailed Report
-                      </Button>
                       <Button
                         variant="outline"
                         onClick={() => handleGenerateValidation(document.id)}
@@ -231,7 +210,7 @@ const Validation = () => {
                         className="gap-2"
                       >
                         <RefreshCw className={`h-4 w-4 ${isValidating ? 'animate-spin' : ''}`} />
-                        Regenerate
+                        Re-analyze Content
                       </Button>
                     </div>
                   </div>
@@ -250,16 +229,16 @@ const Validation = () => {
                     <div className="p-4 rounded-full bg-muted mb-4 mx-auto w-fit">
                       <AlertTriangle className="h-6 w-6 text-muted-foreground" />
                     </div>
-                    <h3 className="text-sm font-medium mb-2">No Validation Report</h3>
+                    <h3 className="text-sm font-medium mb-2">No Content Analysis</h3>
                     <p className="text-sm text-muted-foreground mb-4">
-                      Generate a validation report to analyze document quality
+                      Analyze content for safety issues, harmful content, and malpractices
                     </p>
                     <Button
                       onClick={() => handleGenerateValidation(document.id)}
                       className="gap-2"
                     >
                       <Play className="h-4 w-4" />
-                      Generate Validation Report
+                      Analyze Content Safety
                     </Button>
                   </div>
                 )}
@@ -268,29 +247,6 @@ const Validation = () => {
           );
         })}
       </div>
-
-      {/* Validation Report Dialog */}
-      <Dialog open={!!selectedReport} onOpenChange={() => setSelectedReport(null)}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Content Safety Report</DialogTitle>
-            <DialogDescription>
-              Detailed analysis of content safety, harmful content detection, and factual accuracy
-            </DialogDescription>
-          </DialogHeader>
-          {selectedReport && (
-            <ValidationReportView
-              report={selectedReport}
-              onRegenerateReport={() => {
-                if (selectedReport) {
-                  setSelectedReport(null);
-                  handleGenerateValidation(selectedReport.documentId);
-                }
-              }}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };

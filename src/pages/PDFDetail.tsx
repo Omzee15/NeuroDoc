@@ -10,7 +10,7 @@ import { useState } from "react";
 
 const PDFDetail = () => {
   const { id } = useParams();
-  const { getDocumentById, removeDocument, updateDocument, generateValidationReport } = useDocuments();
+  const { getDocumentById, removeDocument, updateDocument, generateDirectValidation } = useDocuments();
   const { toast } = useToast();
   const [regeneratingSummary, setRegeneratingSummary] = useState(false);
   const [generatingValidation, setGeneratingValidation] = useState(false);
@@ -56,10 +56,10 @@ const PDFDetail = () => {
     
     setGeneratingValidation(true);
     try {
-      const report = await generateValidationReport(pdf.id);
+      const validationText = await generateDirectValidation(pdf.id);
       toast({
         title: 'Content Safety Analysis Complete',
-        description: `Safety analysis completed with ${report.totalIssues} ${report.totalIssues === 0 ? 'issues found - content appears safe' : 'safety concerns identified'}.`,
+        description: 'Analysis completed successfully. Check the results in the validation section.',
       });
     } catch (error) {
       toast({
@@ -169,7 +169,7 @@ const PDFDetail = () => {
               ) : (
                 <>
                   <Shield className="h-4 w-4" />
-                  {pdf.validationReport ? 'Re-analyze Content Safety' : 'Analyze Content Safety'}
+                  {pdf.validationText ? 'Re-analyze Content Safety' : 'Analyze Content Safety'}
                 </>
               )}
             </Button>
@@ -186,7 +186,7 @@ const PDFDetail = () => {
       </Card>
 
       {/* Validation Status Card */}
-      {(pdf.validationReport || pdf.validationStatus === 'validating') && (
+      {(pdf.validationText || pdf.validationStatus === 'validating') && (
         <Card>
           <CardHeader>
             <CardTitle>Content Safety Analysis</CardTitle>
@@ -201,41 +201,22 @@ const PDFDetail = () => {
                 </p>
               </div>
             )}
-            {pdf.validationReport && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="text-center p-4 bg-gray-50 rounded-lg">
-                    <div className={`text-2xl font-bold ${
-                      pdf.validationReport.totalScore >= 90 ? 'text-green-600' :
-                      pdf.validationReport.totalScore >= 70 ? 'text-yellow-600' :
-                      pdf.validationReport.totalScore >= 50 ? 'text-orange-600' : 'text-red-600'
-                    }`}>
-                      {pdf.validationReport.totalScore}%
-                    </div>
-                    <div className="text-sm text-muted-foreground">Overall Score</div>
+            {pdf.validationText && (
+              <div className={`p-4 rounded-lg border-l-4 ${
+                pdf.validationText.includes('✅') ? 'bg-green-50 border-l-green-500' :
+                pdf.validationText.includes('⚠️') ? 'bg-orange-50 border-l-orange-500' :
+                pdf.validationText.includes('❌') ? 'bg-red-50 border-l-red-500' :
+                'bg-blue-50 border-l-blue-500'
+              }`}>
+                <div className="prose prose-sm max-w-none">
+                  <div className={`whitespace-pre-wrap ${
+                    pdf.validationText.includes('✅') ? 'text-green-700' :
+                    pdf.validationText.includes('⚠️') ? 'text-orange-700' :
+                    pdf.validationText.includes('❌') ? 'text-red-700' :
+                    'text-blue-700'
+                  }`}>
+                    {pdf.validationText}
                   </div>
-                  <div className="text-center p-4 bg-gray-50 rounded-lg">
-                    <div className="text-2xl font-bold text-red-600">
-                      {pdf.validationReport.totalIssues}
-                    </div>
-                    <div className="text-sm text-muted-foreground">Issues Found</div>
-                  </div>
-                  <div className="text-center p-4 bg-gray-50 rounded-lg">
-                    <div className="text-2xl font-bold text-blue-600">
-                      {pdf.validationReport.categories.length}
-                    </div>
-                    <div className="text-sm text-muted-foreground">Categories</div>
-                  </div>
-                </div>
-                <div className="flex justify-center">
-                  <Button 
-                    variant="outline"
-                    onClick={() => window.location.href = '/validation'}
-                    className="gap-2"
-                  >
-                    <Eye className="h-4 w-4" />
-                    View Full Safety Report
-                  </Button>
                 </div>
               </div>
             )}

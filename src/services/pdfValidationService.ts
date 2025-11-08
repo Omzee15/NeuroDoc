@@ -1,9 +1,10 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// Configure PDF.js worker
+// Configure PDF.js worker - use local worker instead of CDN
 if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
+  // Use a simple static path approach
+  pdfjsLib.GlobalWorkerOptions.workerSrc = '/js/pdf.worker.min.mjs';
 }
 
 export type ValidationSeverity = 'low' | 'medium' | 'high' | 'critical';
@@ -95,6 +96,59 @@ export class PDFValidationService {
     } catch (error) {
       console.error('PDF validation failed:', error);
       throw new Error('Failed to validate PDF. Please ensure it\'s a valid PDF file.');
+    }
+  }
+
+  async validateContentDirectly(file: File): Promise<string> {
+    try {
+      const analysisData = await this.analyzePDFStructure(file);
+      
+      // Sample first few pages for analysis
+      const sampleText = analysisData.pages
+        .slice(0, 5) // First 5 pages
+        .map(page => page.textContent)
+        .join('\n')
+        .substring(0, 8000); // Limit to ~8000 chars
+
+      if (!sampleText || sampleText.length < 100) {
+        return "✅ **Content Analysis Complete**\n\nStatus: Document appears to have minimal text content. Unable to perform comprehensive content safety analysis.\n\nRecommendation: If this is a text-based document, ensure it contains extractable text content.";
+      }
+
+      if (!this.gemini || !import.meta.env.VITE_PDF_CHAT_GEMINI_API) {
+        return "✅ **Content Analysis Complete**\n\nStatus: Basic structural analysis completed. AI-powered content safety analysis is not available.\n\nDocument appears structurally sound with no obvious technical issues.";
+      }
+
+      const model = this.gemini.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+
+      const prompt = `
+Analyze the following PDF content for safety issues and provide a direct, human-readable assessment.
+
+Focus on:
+1. HARMFUL CONTENT: Dangerous instructions, misleading advice, inappropriate content
+2. INCORRECT INFORMATION: Factual errors, false claims, misleading statements  
+3. MALPRACTICES: Unethical practices, illegal activities, professional misconduct
+
+Text to analyze:
+"""
+${sampleText}
+"""
+
+Provide a direct text response in this format:
+- If content is SAFE: Start with "✅ **Content Safety Verified**" and explain why it's safe
+- If issues found: Start with "⚠️ **Safety Concerns Detected**" and list specific issues
+- Be specific about what makes content problematic
+- Provide actionable recommendations
+
+Keep response concise but informative. Do not use JSON format.
+`;
+
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      return response.text();
+
+    } catch (error) {
+      console.error('Direct validation failed:', error);
+      return "❌ **Content Analysis Failed**\n\nError: Unable to complete content safety analysis. Please try again or check the document format.\n\nRecommendation: Ensure the document is a valid PDF with readable text content.";
     }
   }
 

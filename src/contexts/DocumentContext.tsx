@@ -34,6 +34,7 @@ export interface Document {
   summary?: string; // AI-generated summary
   validationReport?: ValidationReport; // PDF validation report
   validationStatus?: 'pending' | 'validating' | 'completed' | 'failed';
+  validationText?: string; // Direct text validation result
 }
 
 interface DocumentContextType {
@@ -63,6 +64,8 @@ interface DocumentContextType {
   // Validation-related methods
   generateValidationReport: (documentId: string) => Promise<ValidationReport>;
   getValidationReport: (documentId: string) => ValidationReport | undefined;
+  generateDirectValidation: (documentId: string) => Promise<string>;
+  getValidationText: (documentId: string) => string | undefined;
 }
 
 const DocumentContext = createContext<DocumentContextType | undefined>(undefined);
@@ -505,6 +508,44 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return document?.validationReport;
   };
 
+  const generateDirectValidation = async (documentId: string): Promise<string> => {
+    const document = getDocumentById(documentId);
+    if (!document) {
+      throw new Error('Document not found');
+    }
+
+    // Update status to validating
+    updateDocument(documentId, { validationStatus: 'validating' });
+
+    try {
+      // Get the file from storage
+      const file = await getFileFromStore(documentId);
+      if (!file) {
+        throw new Error('File not found in storage');
+      }
+
+      // Generate direct validation text
+      const validationText = await pdfValidationService.validateContentDirectly(file);
+      
+      // Update document with validation text
+      updateDocument(documentId, {
+        validationText,
+        validationStatus: 'completed'
+      });
+
+      return validationText;
+    } catch (error) {
+      console.error('Failed to generate direct validation:', error);
+      updateDocument(documentId, { validationStatus: 'failed' });
+      throw error;
+    }
+  };
+
+  const getValidationText = (documentId: string): string | undefined => {
+    const document = getDocumentById(documentId);
+    return document?.validationText;
+  };
+
   const value: DocumentContextType = {
     documents,
     addDocument,
@@ -530,6 +571,8 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     getPodcastsForDocument,
     generateValidationReport,
     getValidationReport,
+    generateDirectValidation,
+    getValidationText,
   };
 
   return (
