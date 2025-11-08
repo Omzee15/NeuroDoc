@@ -1,0 +1,4 @@
+
+
+also i wnat you to make the highlight text in pdf work proeperly.
+so assk gemini to give you to exact phrases / sections in the pdf that would be important ask it to give you in comma seperated format, and make when you get the response, create array from the resposne, the elements of the array can be taken by splitting the response at every ','. and then for all the content in the arry, make it to hightlight the content in the pdf 
