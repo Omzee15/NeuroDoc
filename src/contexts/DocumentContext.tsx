@@ -366,64 +366,78 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const addDocument = async (file: File): Promise<Document> => {
     const documentId = Date.now().toString();
     
-    // Create blob URL for the file
-    const fileUrl = URL.createObjectURL(file);
-    
-    // Store file data as base64 string for localStorage persistence
-    const arrayBuffer = await file.arrayBuffer();
-    const fileDataBase64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
-    
-    const newDocument: Document = {
-      id: documentId,
-      name: file.name,
-      size: formatFileSize(file.size),
-      pages: estimatePages(file.size),
-      uploadDate: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
-      status: 'uploading',
-      fileUrl,
-      fileDataBase64,
-    };
-
-    setDocuments(prev => [...prev, newDocument]);
-
-    // Process the document and extract content
     try {
-      // Extract text content from PDF
-      const content = await geminiService.extractTextFromPDF(file);
+      // Create blob URL for the file
+      const fileUrl = URL.createObjectURL(file);
       
-      // Update status to processing summary
-      setDocuments(prev => 
-        prev.map(doc => 
-          doc.id === newDocument.id 
-            ? { ...doc, status: 'processing_summary' as const, content }
-            : doc
-        )
-      );
+      // Only store file data for smaller files to avoid localStorage issues
+      let fileDataBase64: string | undefined;
+      if (file.size < 5 * 1024 * 1024) { // Only store files smaller than 5MB as base64
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          fileDataBase64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+        } catch (base64Error) {
+          console.warn('Failed to create base64 for file, skipping base64 storage:', base64Error);
+          // Continue without base64 storage
+        }
+      }
       
-      // Generate AI summary (default to short summary for initial processing)
-      const summary = await geminiService.generatePDFSummary(file.name, content, 'short');
-      
-      // Update document with summary and mark as processed
-      setDocuments(prev => 
-        prev.map(doc => 
-          doc.id === newDocument.id 
-            ? { ...doc, status: 'processed' as const, summary, shortSummary: summary }
-            : doc
-        )
-      );
-    } catch (error) {
-      console.error('Error processing document:', error);
-      // Mark as error if processing fails
-      setDocuments(prev => 
-        prev.map(doc => 
-          doc.id === newDocument.id 
-            ? { ...doc, status: 'error' as const }
-            : doc
-        )
-      );
-    }
+      const newDocument: Document = {
+        id: documentId,
+        name: file.name,
+        size: formatFileSize(file.size),
+        pages: estimatePages(file.size),
+        uploadDate: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
+        status: 'uploading',
+        fileUrl,
+        fileDataBase64,
+      };
 
-    return newDocument;
+      setDocuments(prev => [...prev, newDocument]);
+
+      // Process the document and extract content
+      try {
+        // Extract text content from PDF
+        const content = await geminiService.extractTextFromPDF(file);
+        
+        // Update status to processing summary
+        setDocuments(prev => 
+          prev.map(doc => 
+            doc.id === newDocument.id 
+              ? { ...doc, status: 'processing_summary' as const, content }
+              : doc
+          )
+        );
+        
+        // Generate AI summary (default to short summary for initial processing)
+        const summary = await geminiService.generatePDFSummary(file.name, content, 'short');
+        
+        // Update document with summary and mark as processed
+        setDocuments(prev => 
+          prev.map(doc => 
+            doc.id === newDocument.id 
+              ? { ...doc, status: 'processed' as const, summary, shortSummary: summary }
+              : doc
+          )
+        );
+      } catch (processingError) {
+        console.error('Error processing document:', processingError);
+        // Mark as error if processing fails
+        setDocuments(prev => 
+          prev.map(doc => 
+            doc.id === newDocument.id 
+              ? { ...doc, status: 'error' as const }
+              : doc
+          )
+        );
+        throw processingError; // Re-throw to let the UI handle it
+      }
+
+      return newDocument;
+    } catch (uploadError) {
+      console.error('Error uploading document:', uploadError);
+      throw new Error(`Failed to upload ${file.name}: ${uploadError.message || 'Unknown error'}`);
+    }
   };
 
   const removeDocument = (id: string) => {
@@ -531,38 +545,48 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     try {
       // First try to use stored file data (most reliable)
       if (document.fileDataBase64) {
-        // Convert base64 back to binary
-        const binaryString = atob(document.fileDataBase64);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
+        try {
+          // Convert base64 back to binary
+          const binaryString = atob(document.fileDataBase64);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          
+          const file = new File([bytes], document.name, {
+            type: 'application/pdf',
+            lastModified: new Date(document.uploadDate).getTime(),
+          });
+          return file;
+        } catch (base64Error) {
+          console.warn('Failed to convert base64 to file, trying blob URL:', base64Error);
+          // Fall through to blob URL method
         }
-        
-        const file = new File([bytes], document.name, {
-          type: 'application/pdf',
-          lastModified: new Date(document.uploadDate).getTime(),
-        });
-        return file;
       }
       
       // Fallback to blob URL if file data is not available
       if (document.fileUrl) {
-        const response = await fetch(document.fileUrl);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch from blob URL: ${response.status}`);
+        try {
+          const response = await fetch(document.fileUrl);
+          if (!response.ok) {
+            throw new Error(`Failed to fetch from blob URL: ${response.status}`);
+          }
+          const blob = await response.blob();
+          
+          // Create a File object from the blob
+          const file = new File([blob], document.name, {
+            type: 'application/pdf',
+            lastModified: new Date(document.uploadDate).getTime(),
+          });
+          
+          return file;
+        } catch (blobError) {
+          console.warn('Failed to fetch from blob URL:', blobError);
+          // Fall through to error
         }
-        const blob = await response.blob();
-        
-        // Create a File object from the blob
-        const file = new File([blob], document.name, {
-          type: 'application/pdf',
-          lastModified: new Date(document.uploadDate).getTime(),
-        });
-        
-        return file;
       }
       
-      console.error('No file data or blob URL available for document:', document.name);
+      console.error('No valid file data or blob URL available for document:', document.name);
       return null;
     } catch (error) {
       console.error('Failed to get file from store:', error);
